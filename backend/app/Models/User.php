@@ -28,12 +28,9 @@ class User extends Authenticatable
         return $this->hasMany(UserProduct::class);
     }
 
-    protected function casts(): array
-    {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-            'balance' => 'decimal:2',
-        ];
-    }
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+        'balance' => 'decimal:2',
+    ];
 }
