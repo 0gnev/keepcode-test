@@ -28,19 +28,6 @@ class UserProductController extends Controller
         return $this->formatResponse($result, 'Product purchased successfully');
     }
 
-    private function formatResponse(array $result, string $successMessage): JsonResponse
-    {
-        if (isset($result['error'])) {
-            return response()->json(['error' => $result['error']], $result['status']);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => $successMessage,
-            'data' => $result['data'],
-        ], $result['status']);
-    }
-
     public function rent(RentRequest $request, Product $product): JsonResponse
     {
         $result = $this->userProductService->rentProduct(
@@ -52,8 +39,19 @@ class UserProductController extends Controller
         return $this->formatResponse($result, 'Product rented successfully');
     }
 
-    public function renew(RenewRequest $request, UserProduct $userProduct): JsonResponse
+    public function renew(RenewRequest $request, Product $product): JsonResponse
     {
+        $userProduct = UserProduct::where('user_id', $request->user()->id)
+            ->where('product_id', $product->id)
+            ->first();
+
+        if (!$userProduct || $userProduct->ownership_type !== 'rent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No active rental found for this product.',
+            ], 404);
+        }
+
         $this->authorize('renew', $userProduct);
 
         $result = $this->userProductService->renewRental(
@@ -65,15 +63,6 @@ class UserProductController extends Controller
         return $this->formatResponse($result, 'Rental renewed successfully');
     }
 
-    public function status(UserProduct $userProduct): JsonResponse
-    {
-        $this->authorize('view', $userProduct);
-
-        $result = $this->userProductService->checkStatus($userProduct, request()->user());
-
-        return response()->json(['success' => true, 'data' => $result['data']], $result['status']);
-    }
-
     public function purchaseHistory(Request $request): JsonResponse
     {
         $result = $this->userProductService->getPurchaseHistory($request->user());
@@ -81,6 +70,19 @@ class UserProductController extends Controller
         return response()->json([
             'success' => true,
             'data' => UserProductResource::collection($result['data']),
+        ], $result['status']);
+    }
+
+    private function formatResponse(array $result, string $successMessage): JsonResponse
+    {
+        if (isset($result['error'])) {
+            return response()->json(['error' => $result['error']], $result['status']);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $successMessage,
+            'data' => $result['data'],
         ], $result['status']);
     }
 }

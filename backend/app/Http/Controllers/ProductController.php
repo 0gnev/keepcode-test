@@ -18,10 +18,8 @@ class ProductController extends Controller
         ], 200);
     }
 
-    public function show(int $id): JsonResponse
+    public function show(Product $product): JsonResponse
     {
-        $product = Product::findOrFail($id);
-
         return response()->json([
             'success' => true,
             'data' => new ProductResource($product),

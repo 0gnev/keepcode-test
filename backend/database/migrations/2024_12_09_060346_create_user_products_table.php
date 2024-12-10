@@ -17,6 +17,7 @@ return new class extends Migration {
             $table->enum('ownership_type', ['purchase', 'rent']);
             $table->timestamp('rent_expires_at')->nullable();
             $table->string('unique_code')->nullable();
+            $table->timestamp('rent_started_at')->nullable();
             $table->timestamps();
         });
     }

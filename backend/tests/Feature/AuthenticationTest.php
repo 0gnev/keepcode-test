@@ -60,7 +60,17 @@ class AuthenticationTest extends TestCase
             ->assertJsonStructure([
                 'success',
                 'data' => [
-                    '*' => ['id', 'name', 'price', 'category', 'company', 'rental_price', 'created_at', 'updated_at'],
+                    '*' => [
+                        'id',
+                        'name',
+                        'price',
+                        'category',
+                        'company',
+                        'rental_price',
+                        'created_at',
+                        'updated_at',
+                        'ownership_info'
+                    ],
                 ],
             ]);
     }
@@ -95,6 +105,7 @@ class AuthenticationTest extends TestCase
                 'message' => 'Logged out successfully',
             ]);
 
+        // Assert that all tokens are deleted
         $this->assertDatabaseMissing('personal_access_tokens', [
             'tokenable_id' => $user->id,
         ]);
@@ -117,11 +128,15 @@ class AuthenticationTest extends TestCase
 
         Sanctum::actingAs($user2, ['*']);
 
-        $response = $this->getJson("/api/user-products/{$userProduct->id}/status");
+        $response = $this->getJson("/api/products/{$product->id}");
 
-        $response->assertStatus(403)
+        $response->assertStatus(200)
             ->assertJson([
-                'message' => 'This action is unauthorized.',
+                'success' => true,
+                'data' => [
+                    'id' => $product->id,
+                    'ownership_info' => null, // Ownership info should be null for other users
+                ],
             ]);
     }
 }

@@ -17,9 +17,7 @@ Route::middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
 
     Route::post('/products/{product}/purchase', [UserProductController::class, 'purchase'])->name('products.purchase');
     Route::post('/products/{product}/rent', [UserProductController::class, 'rent'])->name('products.rent');
-
-    Route::post('/user-products/{userProduct}/renew', [UserProductController::class, 'renew'])->name('user-products.renew');
-    Route::get('/user-products/{userProduct}/status', [UserProductController::class, 'status'])->name('user-products.status');
+    Route::post('/products/{product}/renew', [UserProductController::class, 'renew'])->name('products.renew');
 
     Route::get('/user/purchase-history', [UserProductController::class, 'purchaseHistory'])->name('user.purchaseHistory');
 });

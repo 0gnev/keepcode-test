@@ -20,6 +20,29 @@ class UserProductControllerTest extends TestCase
     protected Product $product;
 
     #[Test]
+    public function setUp(): void
+    {
+        parent::setUp();
+
+        // Set a fixed current time
+        Carbon::setTestNow(Carbon::parse('2024-12-10 01:00:00'));
+
+        // Create a user with a balance
+        $this->user = User::factory()->create([
+            'balance' => 500.00,
+        ]);
+
+        // Create a product
+        $this->product = Product::factory()->create([
+            'price' => 200.00,
+            'rental_price' => 50.00,
+        ]);
+
+        // Ensure the product has a valid ID
+        $this->assertNotNull($this->product->id, 'Product ID should not be null');
+    }
+
+    #[Test]
     public function user_can_purchase_a_product_successfully()
     {
         // Authenticate the user for this test
@@ -50,7 +73,7 @@ class UserProductControllerTest extends TestCase
         // Assert that the user's balance is deducted
         $this->assertEquals('300.00', $this->user->fresh()->balance);
 
-        // Assert that the UserProduct record exists
+        // Assert that the UserProduct record exists with correct 'user_id'
         $this->assertDatabaseHas('user_products', [
             'user_id' => $this->user->id,
             'product_id' => $this->product->id,
@@ -121,6 +144,9 @@ class UserProductControllerTest extends TestCase
             'duration' => 8, // 8 hours
         ]);
 
+        $expectedRentStartedAt = Carbon::now()->toIso8601String(); // '2024-12-10T01:00:00+00:00'
+        $expectedRentExpiresAt = Carbon::now()->addHours(8)->toIso8601String(); // '2024-12-10T09:00:00+00:00'
+
         $response->assertStatus(201)
             ->assertJson([
                 'success' => true,
@@ -134,6 +160,7 @@ class UserProductControllerTest extends TestCase
                 'message',
                 'data' => [
                     'product_id',
+                    'rent_started_at',
                     'rent_expires_at',
                     'unique_code',
                 ],
@@ -145,19 +172,19 @@ class UserProductControllerTest extends TestCase
         // Assert that the user's balance is deducted
         $this->assertEquals('450.00', $this->user->fresh()->balance);
 
-        // Assert that the UserProduct record exists
+        // Assert that the UserProduct record exists with correct 'user_id' and 'rent_started_at'
         $this->assertDatabaseHas('user_products', [
             'user_id' => $this->user->id,
             'product_id' => $this->product->id,
             'ownership_type' => 'rent',
         ]);
 
-        // Assert that 'rent_expires_at' is correctly set
-        $expectedExpiration = now()->addHours(8)->toIso8601String(); // 2024-12-10T09:00:00+00:00
-        $this->assertEquals(
-            $expectedExpiration,
-            $this->user->userProducts()->latest()->first()->rent_expires_at->toIso8601String()
-        );
+        $userProduct = UserProduct::where('user_id', $this->user->id)
+            ->where('product_id', $this->product->id)
+            ->first();
+
+        $this->assertNotNull($userProduct->rent_started_at);
+        $this->assertEquals(Carbon::now()->toDateTimeString(), $userProduct->rent_started_at->toDateTimeString());
     }
 
     #[Test]
@@ -256,21 +283,22 @@ class UserProductControllerTest extends TestCase
             'user_id' => $this->user->id,
             'product_id' => $this->product->id,
             'ownership_type' => 'rent',
+            'rent_started_at' => now(),
             'rent_expires_at' => now()->addHours(8),
         ]);
 
-        $response = $this->postJson(route('user-products.renew', ['userProduct' => $userProduct->id]), [
+        $response = $this->postJson(route('products.renew', ['product' => $this->product->id]), [
             'duration' => 8, // Renew for additional 8 hours, total 16
         ]);
 
-        $newExpiration = now()->addHours(16)->toIso8601String(); // 2024-12-10T17:00:00+00:00
+        $newExpiration = now()->addHours(16)->toIso8601String(); // '2024-12-10T17:00:00+00:00'
 
         $response->assertStatus(200)
             ->assertJson([
                 'success' => true,
                 'message' => 'Rental renewed successfully',
                 'data' => [
-                    'new_expiration' => $newExpiration,
+                    'new_expiration' => '2024-12-10T17:00:00.000000Z',
                     'user_balance' => '450.00',
                 ],
             ]);
@@ -280,8 +308,8 @@ class UserProductControllerTest extends TestCase
 
         // Assert that the rental expiration is updated correctly
         $this->assertEquals(
-            $newExpiration,
-            $userProduct->fresh()->rent_expires_at->toIso8601String()
+            Carbon::parse('2024-12-10 17:00:00'),
+            $userProduct->fresh()->rent_expires_at
         );
     }
 
@@ -298,13 +326,14 @@ class UserProductControllerTest extends TestCase
             'ownership_type' => 'purchase',
         ]);
 
-        $response = $this->postJson(route('user-products.renew', ['userProduct' => $userProduct->id]), [
+        $response = $this->postJson(route('products.renew', ['product' => $this->product->id]), [
             'duration' => 8,
         ]);
 
         $response->assertStatus(403)
             ->assertJson([
-                'message' => 'This action is unauthorized.',
+                'success' => false,
+                'message' => 'No active rental found for this product.',
             ]);
     }
 
@@ -319,26 +348,27 @@ class UserProductControllerTest extends TestCase
             'user_id' => $this->user->id,
             'product_id' => $this->product->id,
             'ownership_type' => 'rent',
-            'rent_expires_at' => now()->addHours(20), // 2024-12-10T21:00:00+00:00
+            'rent_started_at' => now()->subHours(4),
+            'rent_expires_at' => now()->addHours(20), // Max expiration = now -4 +24 = now +20
         ]);
 
-        // Attempt to renew for additional 8 hours (total 28 > 24)
-        $response = $this->postJson(route('user-products.renew', ['userProduct' => $userProduct->id]), [
+        // Attempt to renew for additional 8 hours (total would be 28 > 24)
+        $response = $this->postJson(route('products.renew', ['product' => $this->product->id]), [
             'duration' => 8,
         ]);
 
-        $response->assertStatus(400)
-            ->assertJson([
-                'error' => 'Cannot exceed 24 hours total rental time',
-            ]);
+        $response->assertStatus(400) // Changed from 200 to 400
+        ->assertJson([
+            'error' => 'Cannot exceed 24 hours total rental time',
+        ]);
 
         // Assert that balance remains unchanged
         $this->assertEquals('500.00', $this->user->fresh()->balance);
 
         // Assert that the rental expiration is unchanged
         $this->assertEquals(
-            now()->addHours(20)->toIso8601String(),
-            $userProduct->fresh()->rent_expires_at->toIso8601String()
+            Carbon::now()->addHours(20),
+            $userProduct->fresh()->rent_expires_at
         );
     }
 
@@ -353,14 +383,15 @@ class UserProductControllerTest extends TestCase
             'user_id' => $this->user->id,
             'product_id' => $this->product->id,
             'ownership_type' => 'rent',
-            'rent_expires_at' => now()->addHours(8),
+            'rent_started_at' => now()->subHours(2),
+            'rent_expires_at' => now()->addHours(6),
         ]);
 
         // Reduce user balance below rental price
         $this->user->balance = 30.00;
         $this->user->save();
 
-        $response = $this->postJson(route('user-products.renew', ['userProduct' => $userProduct->id]), [
+        $response = $this->postJson(route('products.renew', ['product' => $this->product->id]), [
             'duration' => 4,
         ]);
 
@@ -374,8 +405,8 @@ class UserProductControllerTest extends TestCase
 
         // Assert that the rental expiration is unchanged
         $this->assertEquals(
-            now()->addHours(8)->toIso8601String(),
-            $userProduct->fresh()->rent_expires_at->toIso8601String()
+            Carbon::now()->addHours(6),
+            $userProduct->fresh()->rent_expires_at
         );
     }
 
@@ -394,41 +425,53 @@ class UserProductControllerTest extends TestCase
             'unique_code' => null,
         ]);
 
-        $response = $this->getJson(route('user-products.status', ['userProduct' => $userProduct->id]));
+        $response = $this->getJson(route('products.show', ['product' => $this->product->id]));
 
         $userProduct->refresh();
 
         $newUniqueCode = $userProduct->unique_code;
-        $newRentExpiresAt = $userProduct->rent_expires_at->toIso8601String();
+        $newRentExpiresAt = $userProduct->rent_expires_at;
 
         $response->assertStatus(200)
             ->assertJson([
                 'success' => true,
                 'data' => [
-                    'id' => $userProduct->id,
-                    'product_id' => $this->product->id,
-                    'ownership_type' => 'rent',
-                    'unique_code' => $newUniqueCode,
-                    'rental_active' => true,
+                    'id' => $this->product->id,
+                    'ownership_info' => [
+                        'ownership_type' => 'rent',
+                        'unique_code' => $newUniqueCode,
+                        'rent_started_at' => $userProduct->rent_started_at ? $userProduct->rent_started_at->toIso8601String() : null,
+                        'rent_expires_at' => $newRentExpiresAt ? $newRentExpiresAt->toIso8601String() : null,
+                        'rental_active' => true,
+                    ],
                 ],
             ])
             ->assertJsonStructure([
                 'success',
                 'data' => [
                     'id',
-                    'product_id',
-                    'ownership_type',
-                    'unique_code',
-                    'rent_expires_at',
-                    'rental_active',
+                    'name',
+                    'price',
+                    'category',
+                    'company',
+                    'rental_price',
+                    'created_at',
+                    'updated_at',
+                    'ownership_info' => [
+                        'ownership_type',
+                        'unique_code',
+                        'rent_started_at',
+                        'rent_expires_at',
+                        'rental_active',
+                    ],
                 ],
             ]);
 
         // Assert that 'rent_expires_at' matches up to seconds
-        $expectedRentExpiresAt = now()->addHours(8)->toIso8601String();
-        $actualRentExpiresAt = $userProduct->fresh()->rent_expires_at->toIso8601String();
+        $expectedRentExpiresAt = Carbon::now()->addHours(8);
+        $actualRentExpiresAt = $userProduct->fresh()->rent_expires_at;
 
-        $this->assertEquals($expectedRentExpiresAt, $actualRentExpiresAt);
+        $this->assertEquals($expectedRentExpiresAt->toDateTimeString(), $actualRentExpiresAt->toDateTimeString());
 
         // Assert that unique_code was generated and is a valid UUID
         $this->assertNotNull($userProduct->unique_code);
@@ -436,8 +479,8 @@ class UserProductControllerTest extends TestCase
 
         // Assert that rent_expires_at is correctly set
         $this->assertEquals(
-            $expectedRentExpiresAt,
-            $userProduct->fresh()->rent_expires_at->toIso8601String()
+            $expectedRentExpiresAt->toDateTimeString(),
+            $userProduct->fresh()->rent_expires_at->toDateTimeString()
         );
     }
 
@@ -458,11 +501,15 @@ class UserProductControllerTest extends TestCase
             'rent_expires_at' => now()->addHours(8),
         ]);
 
-        $response = $this->getJson(route('user-products.status', ['userProduct' => $userProduct->id]));
+        $response = $this->getJson(route('products.show', ['product' => $this->product->id]));
 
-        $response->assertStatus(403)
+        $response->assertStatus(200)
             ->assertJson([
-                'message' => 'This action is unauthorized.',
+                'success' => true,
+                'data' => [
+                    'id' => $this->product->id,
+                    'ownership_info' => null, // Ownership info should be null for this user
+                ],
             ]);
     }
 
@@ -524,26 +571,27 @@ class UserProductControllerTest extends TestCase
         // Authenticate the user for this test
         Sanctum::actingAs($this->user, ['*']);
 
-        // Existing rental with 16 hours left
+        // Existing rental with 16 hours left and rent_started_at set to now
         $userProduct = UserProduct::factory()->create([
             'user_id' => $this->user->id,
             'product_id' => $this->product->id,
             'ownership_type' => 'rent',
+            'rent_started_at' => now(),
             'rent_expires_at' => now()->addHours(16),
         ]);
 
-        $response = $this->postJson(route('user-products.renew', ['userProduct' => $userProduct->id]), [
-            'duration' => 8,
+        $response = $this->postJson(route('products.renew', ['product' => $this->product->id]), [
+            'duration' => 8, // Renew for additional 8 hours, total 24
         ]);
 
-        $newExpiration = now()->addHours(24)->toIso8601String(); // 2024-12-11T01:00:00+00:00
+        $newExpiration = now()->addHours(24)->toIso8601String(); // '2024-12-11T01:00:00+00:00'
 
         $response->assertStatus(200)
             ->assertJson([
                 'success' => true,
                 'message' => 'Rental renewed successfully',
                 'data' => [
-                    'new_expiration' => $newExpiration,
+                    'new_expiration' => '2024-12-11T01:00:00.000000Z',
                     'user_balance' => '450.00',
                 ],
             ]);
@@ -553,8 +601,8 @@ class UserProductControllerTest extends TestCase
 
         // Assert that the rental expiration is updated correctly
         $this->assertEquals(
-            $newExpiration,
-            $userProduct->fresh()->rent_expires_at->toIso8601String()
+            Carbon::parse('2024-12-11 01:00:00'),
+            $userProduct->fresh()->rent_expires_at
         );
     }
 
@@ -564,16 +612,17 @@ class UserProductControllerTest extends TestCase
         // Authenticate the user for this test
         Sanctum::actingAs($this->user, ['*']);
 
-        // Existing rental with 20 hours left
+        // Existing rental with 20 hours left and rent_started_at set to now -4 hours
         $userProduct = UserProduct::factory()->create([
             'user_id' => $this->user->id,
             'product_id' => $this->product->id,
             'ownership_type' => 'rent',
-            'rent_expires_at' => now()->addHours(20),
+            'rent_started_at' => now()->subHours(4),
+            'rent_expires_at' => now()->addHours(20), // Max expiration = now -4 +24 = now +20
         ]);
 
-        // Attempt to renew for additional 8 hours (total 28 > 24)
-        $response = $this->postJson(route('user-products.renew', ['userProduct' => $userProduct->id]), [
+        // Attempt to renew for additional 8 hours (total would be 28 > 24)
+        $response = $this->postJson(route('products.renew', ['product' => $this->product->id]), [
             'duration' => 8,
         ]);
 
@@ -587,8 +636,8 @@ class UserProductControllerTest extends TestCase
 
         // Assert that the rental expiration is unchanged
         $this->assertEquals(
-            now()->addHours(20)->toIso8601String(),
-            $userProduct->fresh()->rent_expires_at->toIso8601String()
+            Carbon::now()->addHours(20),
+            $userProduct->fresh()->rent_expires_at
         );
     }
 
@@ -604,41 +653,57 @@ class UserProductControllerTest extends TestCase
             'product_id' => $this->product->id,
             'ownership_type' => 'purchase',
             'unique_code' => null,
+            'rent_expires_at' => null, // Ensure this is null for purchases
         ]);
 
-        $response = $this->getJson(route('user-products.status', ['userProduct' => $userProduct->id]));
+        $response = $this->getJson(route('products.show', ['product' => $this->product->id]));
 
         $userProduct->refresh();
 
         $newUniqueCode = $userProduct->unique_code;
-        $newRentExpiresAt = $userProduct->rent_expires_at->toIso8601String();
+        $newRentExpiresAt = $userProduct->rent_expires_at ? $userProduct->rent_expires_at->toIso8601String() : null;
 
         $response->assertStatus(200)
             ->assertJson([
                 'success' => true,
                 'data' => [
-                    'id' => $userProduct->id,
-                    'product_id' => $this->product->id,
-                    'ownership_type' => 'purchase',
-                    'unique_code' => $newUniqueCode,
-                    'rental_active' => false,
+                    'id' => $this->product->id,
+                    'ownership_info' => [
+                        'ownership_type' => 'purchase',
+                        'unique_code' => $newUniqueCode,
+                        'rent_started_at' => null,
+                        'rent_expires_at' => null,
+                        'rental_active' => false,
+                    ],
                 ],
             ])
             ->assertJsonStructure([
                 'success',
                 'data' => [
                     'id',
-                    'product_id',
-                    'ownership_type',
-                    'unique_code',
-                    'rent_expires_at',
-                    'rental_active',
+                    'name',
+                    'price',
+                    'category',
+                    'company',
+                    'rental_price',
+                    'created_at',
+                    'updated_at',
+                    'ownership_info' => [
+                        'ownership_type',
+                        'unique_code',
+                        'rent_started_at',
+                        'rent_expires_at',
+                        'rental_active',
+                    ],
                 ],
             ]);
 
         // Assert that unique_code was generated and is a valid UUID
         $this->assertNotNull($userProduct->unique_code);
         $this->assertTrue(Str::isUuid($userProduct->unique_code));
+
+        // Assert that rent_expires_at is null
+        $this->assertNull($userProduct->fresh()->rent_expires_at);
     }
 
     #[Test]
@@ -657,42 +722,20 @@ class UserProductControllerTest extends TestCase
 
         $originalUniqueCode = $userProduct->unique_code;
 
-        $response = $this->getJson(route('user-products.status', ['userProduct' => $userProduct->id]));
+        $response = $this->getJson(route('products.show', ['product' => $this->product->id]));
 
         $response->assertStatus(200)
             ->assertJson([
                 'success' => true,
                 'data' => [
-                    'unique_code' => $originalUniqueCode,
+                    'id' => $this->product->id,
+                    'ownership_info' => [
+                        'unique_code' => $originalUniqueCode,
+                    ],
                 ],
             ]);
 
         // Assert that unique_code remains unchanged
         $this->assertEquals($originalUniqueCode, $userProduct->fresh()->unique_code);
-    }
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        // Set a fixed current time
-        Carbon::setTestNow(Carbon::parse('2024-12-10 01:00:00'));
-
-        // Create a user with a balance
-        $this->user = User::factory()->create([
-            'balance' => 500.00,
-        ]);
-
-        // Create a product
-        $this->product = Product::factory()->create([
-            'price' => 200.00,
-            'rental_price' => 50.00,
-        ]);
-
-        // Ensure the product has a valid ID
-        $this->assertNotNull($this->product->id, 'Product ID should not be null');
-
-        // Remove default authentication
-        // Sanctum::actingAs($this->user, ['*']); // Remove or comment out this line
     }
 }

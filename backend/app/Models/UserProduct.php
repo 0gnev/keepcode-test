@@ -15,6 +15,7 @@ class UserProduct extends Model
         'ownership_type',
         'rent_expires_at',
         'unique_code',
+        'rent_started_at',
     ];
 
     protected $dates = [
@@ -22,6 +23,7 @@ class UserProduct extends Model
     ];
 
     protected $casts = [
+        'rent_started_at' => 'datetime',
         'rent_expires_at' => 'datetime',
     ];
 
