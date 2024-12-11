@@ -187,8 +187,8 @@ class UserProductService
             'product_id' => $userProduct->product_id,
             'ownership_type' => $userProduct->ownership_type,
             'unique_code' => $userProduct->unique_code,
-            'rent_started_at' => $userProduct->rent_started_at ?: null,
-            'rent_expires_at' => $userProduct->rent_expires_at ?: null,
+            'rent_started_at' => $userProduct->rent_started_at ? $userProduct->rent_started_at->toIso8601String() : null,
+            'rent_expires_at' => $userProduct->rent_expires_at ? $userProduct->rent_expires_at->toIso8601String() : null,
             'rental_active' => $isActiveRental,
         ], 200);
     }

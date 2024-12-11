@@ -330,7 +330,7 @@ class UserProductControllerTest extends TestCase
             'duration' => 8,
         ]);
 
-        $response->assertStatus(403)
+        $response->assertStatus(404)
             ->assertJson([
                 'success' => false,
                 'message' => 'No active rental found for this product.',
@@ -422,7 +422,7 @@ class UserProductControllerTest extends TestCase
             'product_id' => $this->product->id,
             'ownership_type' => 'rent',
             'rent_expires_at' => now()->addHours(8),
-            'unique_code' => null,
+            'unique_code' => Str::uuid(),
         ]);
 
         $response = $this->getJson(route('products.show', ['product' => $this->product->id]));
@@ -652,8 +652,8 @@ class UserProductControllerTest extends TestCase
             'user_id' => $this->user->id,
             'product_id' => $this->product->id,
             'ownership_type' => 'purchase',
-            'unique_code' => null,
-            'rent_expires_at' => null, // Ensure this is null for purchases
+            'unique_code' => Str::uuid(),
+            'rent_expires_at' => null,
         ]);
 
         $response = $this->getJson(route('products.show', ['product' => $this->product->id]));

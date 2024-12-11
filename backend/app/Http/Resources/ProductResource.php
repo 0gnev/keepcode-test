@@ -26,13 +26,13 @@ class ProductResource extends JsonResource
             'category' => $this->category,
             'company' => $this->company,
             'rental_price' => number_format($this->rental_price, 2, '.', ''),
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
+            'created_at' => $this->created_at->format('Y-m-d\TH:i:sP'),
+            'updated_at' => $this->updated_at->format('Y-m-d\TH:i:sP'),
             'ownership_info' => $userProduct ? [
                 'ownership_type' => $userProduct->ownership_type,
                 'unique_code' => $userProduct->unique_code,
-                'rent_started_at' => $userProduct->rent_started_at ?: null,
-                'rent_expires_at' => $userProduct->rent_expires_at ?: null,
+                'rent_started_at' => $userProduct->rent_started_at ? $userProduct->rent_started_at->format('Y-m-d\TH:i:sP') : null,
+                'rent_expires_at' => $userProduct->rent_expires_at ? $userProduct->rent_expires_at->format('Y-m-d\TH:i:sP') : null,
                 'rental_active' => $userProduct->ownership_type === 'rent' && $userProduct->rent_expires_at && $userProduct->rent_expires_at->isFuture(),
             ] : null,
         ];

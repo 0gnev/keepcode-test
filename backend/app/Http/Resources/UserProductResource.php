@@ -15,9 +15,9 @@ class UserProductResource extends JsonResource
             'product_name' => $this->product->name,
             'ownership_type' => $this->ownership_type,
             'unique_code' => $this->unique_code,
-            'rent_expires_at' => $this->rent_expires_at ? $this->rent_expires_at->toDateTimeString() : null,
-            'created_at' => $this->created_at->toDateTimeString(),
-            'updated_at' => $this->updated_at->toDateTimeString(),
+            'rent_expires_at' => $this->rent_expires_at ? $this->rent_expires_at->format('Y-m-d\TH:i:sP') : null,
+            'created_at' => $this->created_at->format('Y-m-d\TH:i:sP'),
+            'updated_at' => $this->updated_at->format('Y-m-d\TH:i:sP'),
         ];
     }
 }
